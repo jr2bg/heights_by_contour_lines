@@ -40,15 +40,10 @@ def get_directions(center_x, center_y, points):
     dict[key: tuple, value: List[float]
         directions and it corresponding points
     """
-    # define epsion for any error induced due to computing processes
-    epsilon = 1
-
     # dictionary of the legs by each direction
     # the directions will be unitary and the legs will be in the 
     # non-modified origin
-    legs_per_direction = {
-
-    }
+    legs_per_direction = {}
 
     for point in points:
     
@@ -67,16 +62,23 @@ def get_directions(center_x, center_y, points):
             if magnitude_proj > 0.75*magnitude_vec:
                 dir_max_mag = dir
 
-        # if it is the first element or not a max, add the unitary direction
+        # if it is the first element on the dict or the point doesnt follow
+        # any of the previous directions, add the unitary direction
         if not legs_per_direction or dir_max_mag is None:
             len_np = (nx**2 + ny**2)**(1/2)
             unitary_dir = (nx/len_np, ny/len_np)
             legs_per_direction[unitary_dir]=[0 for _ in range(9)]
+
+            # add the point in the position of its magnitude divided by 2, as 
+            # they are separated by 2 meters
             legs_per_direction[unitary_dir][round(len_np/2)-1] = point
         else:
+            # add the point in the position of its magnitude projection by 2, as 
+            # they are separated by 2 meters
             legs_per_direction[dir_max_mag][round(magnitude_proj/2)-1] = point
     
     pprint.pprint(legs_per_direction)
+    return legs_per_direction
 
 def organize_points(st_x, st_y, end_x, end_y, center_x, center_y, points):
     """organizes the points with the given method
@@ -162,7 +164,6 @@ def main(contour_map_path, points_path):
 
     cx, cy = get_center_of_mass(points)
     get_directions(cx,cy, points)
-    return
 
     # scatter points set
     points_contour_line = set()
@@ -187,6 +188,7 @@ def main(contour_map_path, points_path):
 
     # interpolate with the provided data
     interpolated = griddata(grid_xy, elevs, points, method="linear")
+    center_interpolated = griddata(grid_xy, elevs, (cx, cy), method="linear")
 
     # create dfs to store information
     df_grid = pd.DataFrame(points, columns = ["X", "Y"])
@@ -194,7 +196,11 @@ def main(contour_map_path, points_path):
 
     # save the information in a single dataframe for easier manipulation
     output = pd.concat([df_grid, df_elev], axis=1)
+
+    # take the difference of the original and center's height
+    output["Z"] = output["Z"] - center_interpolated
     print(output)
+    print(f"center: x={cx}, y={cy}, z={center_interpolated}")
     return output
 
 if __name__ == "__main__":
