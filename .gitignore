@@ -1,0 +1,5 @@
+.venv*
+*.jpg
+*.csv
+*.dxf
+.vscode*
