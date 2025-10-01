@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import math
+from datetime import datetime
 import argparse
 import pandas as pd
 import numpy as np
@@ -194,6 +195,13 @@ TORRE XXXX cuerpo +XX            TORRE No.- DDD   KM.
 
         result += ind + s
     print(result)
+
+    # get the current time
+    current_time = datetime.now()
+    str_date = current_time.strftime("%d%m%Y_%H_%M")
+    # write the results in a file
+    with open(f"{str_date}.dat", "w") as file:
+        file.write(result)
     return 
 
 def main(contour_map_path, points_path, line, cx, cy):
