@@ -2,22 +2,23 @@
 import os
 import math
 import argparse
-import pprint
 import pandas as pd
 import numpy as np
 from scipy.interpolate import griddata
 
 parser = argparse.ArgumentParser(
     description="Generates the data from given points from contour lines",
-    usage="%(prog)s contour_lines points"
+    #usage="%(prog)s contour_lines points"
 )
-parser.add_argument("contour_lines", help="csv output path from autocad that contains the lines of the contour map")
-parser.add_argument("points", help="csv path with the desired points")
+parser.add_argument("-cl","--contour_lines", help="csv output path from autocad that contains the lines of the contour map")
+parser.add_argument("-p", "--points", help="csv path with the desired points")
+parser.add_argument("-cx", "--center_x", type=float, help="x position of the center")
+parser.add_argument("-cy", "--center_y", type=float, help="y position of the center")
+parser.add_argument("-bx", "--beginning_x", type=float, help="x position of the beginning of the line")
+parser.add_argument("-by", "--beginning_y", type=float, help="y position of the beginning of the line")
+parser.add_argument("-ex", "--end_x", type=float, help="x position of the end of the line")
+parser.add_argument("-ey", "--end_y", type=float, help="y position of the end of the line")
 args = parser.parse_args()
-
-def format_result():
-    """give format to the pandas result to follow the dat required"""
-
 
 def get_center_of_mass(points):
     """gets the center of mass"""
@@ -121,7 +122,8 @@ def get_sections_by_cardinal(center_x, center_y, points, line):
     theta_l = get_polar(*line)
 
     # elements of the rotation matrix: sine and cos
-    R = {"s":math.sin(theta_l), "c":math.cos(theta_l)}
+    # negative to consider clockwise rotation
+    R = {"s":math.sin(-theta_l), "c":math.cos(-theta_l)}
 
     # making a rotation for all the directions
     rotated_dirs = {
@@ -130,17 +132,17 @@ def get_sections_by_cardinal(center_x, center_y, points, line):
     
     cardinal_per_dr = {}
     for k,v in rotated_dirs.items():
-        # nearest to the line to the right, corresponding to the 1st cuadrant
-        if v[0] > 0 and v[1] > 0:
+        # nearest to the line to the right, corresponding to the 4th cuadrant
+        if v[0] > 0 and v[1] < 0:
             cardinal_per_dr[k] = 1
-        # 4th quadrant, following the clockwise convention for ennumeration
-        elif v[0] > 0 and v[1] < 0:
-            cardinal_per_dr[k] = 2
-        # 3rd quadrant, following the clockwise convention for ennumeration
+        # 3th quadrant, following the clockwise convention for ennumeration
         elif v[0] < 0 and v[1] < 0:
-            cardinal_per_dr[k] = 3
+            cardinal_per_dr[k] = 2
         # 2nd quadrant, following the clockwise convention for ennumeration
         elif v[0] < 0 and v[1] > 0:
+            cardinal_per_dr[k] = 3
+        # 1st quadrant, following the clockwise convention for ennumeration
+        elif v[0] > 0 and v[1] > 0:
             cardinal_per_dr[k] = 4
 
     # converting directions to the appropriate cardinal
@@ -157,9 +159,44 @@ def format_interpolated_result(output):
     output: pandas.DataFrame
         dataframe containing the information of the interest points in X,Y,Z cols
     """
+    base = """L.T. XXX XXXXXXXXXXXXXXXXXXXXXXXX        
+Lev. TOP. ALGUIEN: MONTH/YY
+TORRE XXXX cuerpo +XX            TORRE No.- DDD   KM. 
+    19.200  3.70000     46.00      0.30
+     14.00     14.00      14.00     14.00\n"""
+    
+    # create rows, in each row, the element considered belong to 1-4 sections
+    # therefore, we require all the groupings at the same time
+    s1 = output.loc[output["Section"]== 1].reset_index(drop=True)
+    s2 = output.loc[output["Section"]== 2].reset_index(drop=True)
+    s3 = output.loc[output["Section"]== 3].reset_index(drop=True)
+    s4 = output.loc[output["Section"]== 4].reset_index(drop=True)
+
+    # it is required that
+    # 1. The index + 1 is present at the beginning, with format DD.
+    #    If is only unity then ` D`
+    # 2. 3 slots, one for the sign minus if needed and other for decimals
+    # 3. digit, last digit is in index 9
+    result = base
+    for i in range(13):
+        ind  = str(i+1).rjust(2, " ")
+        if i < 9:
+            s = ""
+            # two decimal points always, and 7 spaces
+            s += format(s1["Z"].iloc[i],".2f").rjust(7, " ")
+            s += "   2.00"
+            s += format(s2["Z"].iloc[i],".2f").rjust(7, " ")
+            s += "   2.00"
+            s += format(s3["Z"].iloc[i],".2f").rjust(7, " ")
+            s += "   2.00"
+            s += format(s4["Z"].iloc[i],".2f").rjust(7, " ")
+            s += "   2.00\n"
+
+        result += ind + s
+    print(result)
     return 
 
-def main(contour_map_path, points_path, line):
+def main(contour_map_path, points_path, line, cx, cy):
     # read the passed file with the edges of contour map
     df = pd.read_csv(contour_map_path)
 
@@ -189,7 +226,7 @@ def main(contour_map_path, points_path, line):
     for row in df_points.itertuples():
         points.append((row.X,row.Y))
 
-    cx, cy = get_center_of_mass(points)
+    #cx, cy = get_center_of_mass(points)
     sections, magnitudes = get_sections_by_cardinal(cx,cy, points, line)
 
     # scatter points set
@@ -226,18 +263,32 @@ def main(contour_map_path, points_path, line):
 
     # take the difference of the original and center's height
     output["Z"] = output["Z"] - center_interpolated
+    # round to two decimal places
+    output["Z"] = output["Z"].round(2)
     output["Section"] = sections
     output["Magnitude"] = magnitudes
     output = output.sort_values(["Section", "Magnitude"])
-    print(output)
-    print(f"center: x={cx}, y={cy}, z={center_interpolated}")
+    #print(output)
+    #print(f"center: x={cx}, y={cy}, z={center_interpolated}")
+    format_interpolated_result(output)
     return output
 
 if __name__ == "__main__":
-    line = (512068.6626-512038.5642, 2339006.0270-2338865.4021)
+    args.contour_lines
+    # start - end to have the appropriate vector
+    line = (
+        args.beginning_x-args.end_x,
+        args.beginning_y-args.end_y
+    )
     # check that both files exist
     if (os.path.isfile(args.contour_lines) and os.path.isfile(args.points)):
-        main(args.contour_lines,args.points, line)
+        main(
+            args.contour_lines,
+            args.points,
+            line,
+            args.center_x,
+            args.center_y
+            )
     elif not os.path.isfile(args.contour_lines):
         print(f"[ERROR] Contour map file `{args.contour_lines}` was not found")
     else:
