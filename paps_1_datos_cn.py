@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import math
 import argparse
 import pprint
 import pandas as pd
@@ -14,6 +15,10 @@ parser.add_argument("contour_lines", help="csv output path from autocad that con
 parser.add_argument("points", help="csv path with the desired points")
 args = parser.parse_args()
 
+def format_result():
+    """give format to the pandas result to follow the dat required"""
+
+
 def get_center_of_mass(points):
     """gets the center of mass"""
     x = 0
@@ -23,7 +28,73 @@ def get_center_of_mass(points):
         y += point[1]
     return x/len(points), y/len(points)
 
-def get_directions(center_x, center_y, points):
+def get_polar(x,y):
+    """given a vector, returns its degree"""
+    theta = math.atan(y/x)
+
+    if x < 0:
+        theta += math.pi
+    elif x > 0 and y < 0:
+        theta += 2*math.pi
+    
+    return theta
+
+def sort_section(mag_section):
+    """mag_section is a list of tuple type (float, (float, float))
+    
+    """
+    sorted_magsection =  sorted(mag_section)
+
+    # return only the points
+    return [p for _,p in sorted_magsection]
+
+def get_directions_and_magnitudes(center_x, center_y, points):
+    directions = []
+    magnitudes = []
+
+    unique_drs = []
+
+    for point in points:
+    
+        # taking as origin the center
+        x,y = point
+        nx,ny = (x - center_x,y - center_y)
+
+        # iterate over the dictionary keys to determine direction
+        dir_max_mag = None
+        for dir in unique_drs:
+            magnitude_proj =nx*dir[0] + ny*dir[1]
+            magnitude_vec = (nx**2 + ny**2)**(1/2)
+
+            # the projection is at least 0.75 the magnitude of the vector
+            # as they must be parallel
+            if magnitude_proj > 0.75*magnitude_vec:
+                dir_max_mag = dir
+
+        # if it is the first element on the dict or the point doesnt follow
+        # any of the previous directions, add the unitary direction
+        if len(unique_drs) == 0 or dir_max_mag is None:
+            len_np = (nx**2 + ny**2)**(1/2)
+            unitary_dir = (nx/len_np, ny/len_np)
+
+            unique_drs.append(unitary_dir)
+            directions.append(unitary_dir)
+            magnitudes.append(len_np)
+        else:
+            # append the point with the magnitude of its projection
+            directions.append(dir_max_mag)
+            magnitudes.append(magnitude_vec)
+        
+    return unique_drs, directions, magnitudes
+
+def get_legs_with_index(legs_per_direction):
+    """gets the legs and its associated index inside the direction"""
+    legs = []
+    for k in legs_per_direction.keys():
+        mag_section = legs_per_direction[k]
+        legs_per_direction[k] = sort_section(mag_section)
+
+def get_sections_by_cardinal(center_x, center_y, points, line):
     """gets the directions of the legs
     For this, a rest is done between the center and the points.
     Then the dot product is done between the points
@@ -43,82 +114,38 @@ def get_directions(center_x, center_y, points):
     # dictionary of the legs by each direction
     # the directions will be unitary and the legs will be in the 
     # non-modified origin
-    legs_per_direction = {}
-
-    for point in points:
+    unique_drs, directions, magnitudes = \
+        get_directions_and_magnitudes(center_x, center_y, points)
     
-        # taking as origin the center
-        x,y = point
-        nx,ny = (x - center_x,y - center_y)
+    # find difference in radians from the directions and the line
+    theta_l = get_polar(*line)
 
-        # iterate over the dictionary keys to determine direction
-        dir_max_mag = None
-        for dir in legs_per_direction.keys():
-            magnitude_proj =nx*dir[0] + ny*dir[1]
-            magnitude_vec = (nx**2 + ny**2)**(1/2)
+    # elements of the rotation matrix: sine and cos
+    R = {"s":math.sin(theta_l), "c":math.cos(theta_l)}
 
-            # the projection is at least 0.75 the magnitude of the vector
-            # as they must be parallel
-            if magnitude_proj > 0.75*magnitude_vec:
-                dir_max_mag = dir
-
-        # if it is the first element on the dict or the point doesnt follow
-        # any of the previous directions, add the unitary direction
-        if not legs_per_direction or dir_max_mag is None:
-            len_np = (nx**2 + ny**2)**(1/2)
-            unitary_dir = (nx/len_np, ny/len_np)
-            legs_per_direction[unitary_dir]=[0 for _ in range(9)]
-
-            # add the point in the position of its magnitude divided by 2, as 
-            # they are separated by 2 meters
-            legs_per_direction[unitary_dir][round(len_np/2)-1] = point
-        else:
-            # add the point in the position of its magnitude projection by 2, as 
-            # they are separated by 2 meters
-            legs_per_direction[dir_max_mag][round(magnitude_proj/2)-1] = point
+    # making a rotation for all the directions
+    rotated_dirs = {
+        dr:(dr[0]*R["c"] - dr[1]*R["s"], dr[0]*R["s"] + dr[1]*R["c"])  \
+            for dr in unique_drs}
     
-    pprint.pprint(legs_per_direction)
-    return legs_per_direction
+    cardinal_per_dr = {}
+    for k,v in rotated_dirs.items():
+        # nearest to the line to the right, corresponding to the 1st cuadrant
+        if v[0] > 0 and v[1] > 0:
+            cardinal_per_dr[k] = 1
+        # 4th quadrant, following the clockwise convention for ennumeration
+        elif v[0] > 0 and v[1] < 0:
+            cardinal_per_dr[k] = 2
+        # 3rd quadrant, following the clockwise convention for ennumeration
+        elif v[0] < 0 and v[1] < 0:
+            cardinal_per_dr[k] = 3
+        # 2nd quadrant, following the clockwise convention for ennumeration
+        elif v[0] < 0 and v[1] > 0:
+            cardinal_per_dr[k] = 4
 
-def organize_points(st_x, st_y, end_x, end_y, center_x, center_y, points):
-    """organizes the points with the given method
-    
-    the method consists in a line dividing the plane. The center is supposed 
-    lie on it, but not in all cases. This line separates the plane in two. The
-    first leg is the one on the rightest and below the line, the rest follow
-    the clockwise direction.
-
-    Parameters
-    ----------
-    st_x : float
-        x beginning of the dividing line
-    st_y : float
-        y beginning of the dividing line
-    end_x : float
-        x end of the dividing line
-    end_y : float
-        y end of the dividing line
-    center_x : float
-        x position of the center
-    center_y : float
-        y position of the center
-    points : list[(float,float)]
-        points to get its height, in X,Y format
-    
-    Returns
-    -------
-    pandas.Dataframe
-        data organized according to the selection rule
-    """
-    # get the 4 vectors of direction
-
-    # from the center, get all 
-
-    # get the 9 legs for each vector
-
-    # 
-
-    pass
+    # converting directions to the appropriate cardinal
+    cardinals = [cardinal_per_dr[d] for d in directions]
+    return cardinals, magnitudes
 
 def format_interpolated_result(output):
     """creates a new file with the appropriate format for the given points
@@ -132,7 +159,7 @@ def format_interpolated_result(output):
     """
     return 
 
-def main(contour_map_path, points_path):
+def main(contour_map_path, points_path, line):
     # read the passed file with the edges of contour map
     df = pd.read_csv(contour_map_path)
 
@@ -163,7 +190,7 @@ def main(contour_map_path, points_path):
         points.append((row.X,row.Y))
 
     cx, cy = get_center_of_mass(points)
-    get_directions(cx,cy, points)
+    sections, magnitudes = get_sections_by_cardinal(cx,cy, points, line)
 
     # scatter points set
     points_contour_line = set()
@@ -199,14 +226,18 @@ def main(contour_map_path, points_path):
 
     # take the difference of the original and center's height
     output["Z"] = output["Z"] - center_interpolated
+    output["Section"] = sections
+    output["Magnitude"] = magnitudes
+    output = output.sort_values(["Section", "Magnitude"])
     print(output)
     print(f"center: x={cx}, y={cy}, z={center_interpolated}")
     return output
 
 if __name__ == "__main__":
+    line = (512068.6626-512038.5642, 2339006.0270-2338865.4021)
     # check that both files exist
     if (os.path.isfile(args.contour_lines) and os.path.isfile(args.points)):
-        main(args.contour_lines,args.points)
+        main(args.contour_lines,args.points, line)
     elif not os.path.isfile(args.contour_lines):
         print(f"[ERROR] Contour map file `{args.contour_lines}` was not found")
     else:
