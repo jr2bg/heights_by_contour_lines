@@ -173,6 +173,13 @@ TORRE XXXX cuerpo +XX            TORRE No.- DDD   KM.
     s3 = output.loc[output["Section"]== 3].reset_index(drop=True)
     s4 = output.loc[output["Section"]== 4].reset_index(drop=True)
 
+    # change rest the magnitude to the following to get distance between
+    # each leg
+    s1["LegSep"] = s1["Magnitude"] -s1["Magnitude"].shift(1, fill_value=0)
+    s2["LegSep"] = s2["Magnitude"] -s2["Magnitude"].shift(1, fill_value=0)
+    s3["LegSep"] = s3["Magnitude"] -s3["Magnitude"].shift(1, fill_value=0)
+    s4["LegSep"] = s4["Magnitude"] -s4["Magnitude"].shift(1, fill_value=0)
+
     # it is required that
     # 1. The index + 1 is present at the beginning, with format DD.
     #    If is only unity then ` D`
@@ -185,13 +192,13 @@ TORRE XXXX cuerpo +XX            TORRE No.- DDD   KM.
             s = ""
             # two decimal points always, and 7 spaces
             s += format(s1["Z"].iloc[i],".2f").rjust(7, " ")
-            s += "   2.00"
+            s += format(s1["LegSep"].iloc[i], ".2f").rjust(7, " ")
             s += format(s2["Z"].iloc[i],".2f").rjust(7, " ")
-            s += "   2.00"
+            s += format(s2["LegSep"].iloc[i], ".2f").rjust(7, " ")
             s += format(s3["Z"].iloc[i],".2f").rjust(7, " ")
-            s += "   2.00"
+            s += format(s3["LegSep"].iloc[i], ".2f").rjust(7, " ")
             s += format(s4["Z"].iloc[i],".2f").rjust(7, " ")
-            s += "   2.00\n"
+            s += format(s4["LegSep"].iloc[i], ".2f").rjust(7, " ") + "\n"
 
         result += ind + s
     print(result)
@@ -275,6 +282,7 @@ def main(contour_map_path, points_path, line, cx, cy):
     output["Z"] = output["Z"].round(2)
     output["Section"] = sections
     output["Magnitude"] = magnitudes
+    output["Magnitude"] = output["Magnitude"].round(2)
     output = output.sort_values(["Section", "Magnitude"])
     #print(output)
     #print(f"center: x={cx}, y={cy}, z={center_interpolated}")
